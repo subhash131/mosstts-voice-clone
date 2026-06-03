@@ -2873,6 +2873,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args(argv)
 
+    # Render / Railway inject $PORT at runtime. Override --port if $PORT is set
+    # (handles cases where conda run strips the CLI arg or env substitution fails).
+    env_port = os.getenv("PORT")
+    if env_port:
+        try:
+            args.port = int(env_port)
+        except ValueError:
+            pass
+
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         level=logging.INFO,
@@ -2898,6 +2907,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     vscode_proxy_uri = os.getenv("VSCODE_PROXY_URI", "")
     root_path = _resolve_vscode_root_path(vscode_proxy_uri, args.port)
     logging.info("root_path=%s", root_path)
+    logging.info("binding on host=%s port=%s", args.host, args.port)
     if args.share:
         logging.warning("--share is ignored by the FastAPI-based Nano-TTS app.")
 

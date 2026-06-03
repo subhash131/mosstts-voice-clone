@@ -5,7 +5,7 @@ WORKDIR /app
 
 # ── System dependencies ───────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git ffmpeg libsndfile1 \
+    build-essential git ffmpeg libsndfile1 curl \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create conda env and install pynini (the conda-only dep) ─────────────────
@@ -21,22 +21,18 @@ RUN conda run -n mosstts pip install --no-cache-dir \
     conda run -n mosstts pip install --no-cache-dir -r requirements.txt && \
     conda run -n mosstts pip install --no-cache-dir -e .
 
-# ── (Optional) Pre-download HF model weights into the image ──────────────────
-# Uncomment the block below to bake models into the image (~2 GB larger image
-# but zero download delay on cold start). Leave commented to download on first run.
-#
-# RUN conda run -n mosstts python -c "\
-#     from moss_tts_nano_runtime import NanoTTSService; \
-#     svc = NanoTTSService(); svc.get_model()"
+# ── Make startup script executable ───────────────────────────────────────────
+RUN chmod +x start.sh
 
-# ── Port ──────────────────────────────────────────────────────────────────────
+# ── Port (Render/Railway override this via $PORT env var at runtime) ──────────
+# The app reads $PORT at startup and binds to it; 18083 is the local fallback.
 EXPOSE 18083
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:18083/api/warmup-status || exit 1
+# Uses $PORT so it works on Railway too
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-18083}/api/warmup-status || exit 1
 
-# ── Start the server ──────────────────────────────────────────────────────────
-# Switch "app.py" → "app_onnx.py" for the lighter ONNX CPU version (no PyTorch at inference)
-CMD ["conda", "run", "--no-capture-output", "-n", "mosstts", \
-     "python", "app.py", "--host", "0.0.0.0", "--port", "18083"]
+# ── Start ─────────────────────────────────────────────────────────────────────
+# start.sh reads $PORT (injected by Railway) and falls back to 18083 locally
+CMD ["/bin/sh", "start.sh"]
