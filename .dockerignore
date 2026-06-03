@@ -1,0 +1,16 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+dist
+build
+.cache
+generated_audio
+.app_prompt_uploads
+*.log
+.env
+.env.*
