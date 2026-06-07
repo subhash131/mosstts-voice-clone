@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import hashlib
-import hmac
 import io
 import json
 import logging
@@ -15,35 +13,6 @@ import time
 import urllib.parse
 import uuid
 import wave
-
-TTS_SHARED_SECRET = os.environ.get("TTS_SHARED_SECRET", "dev_secret_123")
-claimed_tokens = set()
-
-
-def verify_temp_token(token: str, stream_id: str):
-    if not token:
-        raise ValueError("Token missing")
-    if token in claimed_tokens:
-        raise ValueError("Token already used")
-    try:
-        # Add back base64 padding that was stripped during URL encoding
-        padded = token + "=" * (-len(token) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(padded))
-        expected_sig = hmac.new(
-            TTS_SHARED_SECRET.encode(), decoded["data"].encode(), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(expected_sig, decoded["sig"]):
-            raise ValueError("Invalid signature")
-        payload = json.loads(decoded["data"])
-        if payload.get("stream_id") != stream_id:
-            raise ValueError("Stream ID mismatch")
-        if payload.get("exp", 0) < time.time() * 1000:
-            raise ValueError("Token expired")
-        claimed_tokens.add(token)
-    except Exception as e:
-        raise ValueError(f"Invalid token: {e}")
-
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, TypeVar
@@ -53,12 +22,7 @@ import torch
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import (
-    FileResponse,
-    HTMLResponse,
-    JSONResponse,
-    StreamingResponse,
-)
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from moss_tts_nano_runtime import (
     DEFAULT_AUDIO_TOKENIZER_PATH,
@@ -93,29 +57,20 @@ def _load_demo_entries() -> list[DemoEntry]:
         return []
 
     demo_entries: list[DemoEntry] = []
-    for line_index, raw_line in enumerate(
-        DEMO_METADATA_PATH.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_index, raw_line in enumerate(DEMO_METADATA_PATH.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         try:
             payload = json.loads(line)
         except Exception:
-            logging.warning(
-                "failed to parse demo metadata line=%s path=%s",
-                line_index,
-                DEMO_METADATA_PATH,
-                exc_info=True,
-            )
+            logging.warning("failed to parse demo metadata line=%s path=%s", line_index, DEMO_METADATA_PATH, exc_info=True)
             continue
 
         prompt_audio_relative_path = str(payload.get("role", "")).strip()
         text = str(payload.get("text", "")).strip()
         if not prompt_audio_relative_path or not text:
-            logging.warning(
-                "skip invalid demo metadata line=%s role/text missing", line_index
-            )
+            logging.warning("skip invalid demo metadata line=%s role/text missing", line_index)
             continue
 
         prompt_audio_path = (APP_DIR / prompt_audio_relative_path).resolve()
@@ -138,10 +93,7 @@ def _load_demo_entries() -> list[DemoEntry]:
             continue
 
         demo_index = len(demo_entries) + 1
-        name = (
-            str(payload.get("name", "")).strip()
-            or f"Demo {demo_index}: {prompt_audio_path.stem}"
-        )
+        name = str(payload.get("name", "")).strip() or f"Demo {demo_index}: {prompt_audio_path.stem}"
         demo_entries.append(
             DemoEntry(
                 demo_id=f"demo-{demo_index}",
@@ -154,9 +106,7 @@ def _load_demo_entries() -> list[DemoEntry]:
     return demo_entries
 
 
-def _resolve_vscode_root_path(
-    vscode_proxy_uri: Optional[str], server_port: int
-) -> Optional[str]:
+def _resolve_vscode_root_path(vscode_proxy_uri: Optional[str], server_port: int) -> Optional[str]:
     if not vscode_proxy_uri:
         return None
     raw = vscode_proxy_uri.strip()
@@ -205,11 +155,7 @@ class WarmupSnapshot:
 
 
 class WarmupManager:
-    def __init__(
-        self,
-        runtime: NanoTTSService,
-        text_normalizer_manager: SharedWeTextProcessingManager | None = None,
-    ) -> None:
+    def __init__(self, runtime: NanoTTSService, text_normalizer_manager: SharedWeTextProcessingManager | None = None) -> None:
         self.runtime = runtime
         self.text_normalizer_manager = text_normalizer_manager
         self._lock = threading.Lock()
@@ -225,9 +171,7 @@ class WarmupManager:
             if self._started:
                 return
             self._started = True
-            self._thread = threading.Thread(
-                target=self._run, name="nano-tts-warmup", daemon=True
-            )
+            self._thread = threading.Thread(target=self._run, name="nano-tts-warmup", daemon=True)
             self._thread.start()
 
     def snapshot(self) -> WarmupSnapshot:
@@ -243,9 +187,7 @@ class WarmupManager:
         with self._lock:
             if not self._started:
                 self._started = True
-                self._thread = threading.Thread(
-                    target=self._run, name="nano-tts-warmup", daemon=True
-                )
+                self._thread = threading.Thread(target=self._run, name="nano-tts-warmup", daemon=True)
                 self._thread.start()
             thread = self._thread
         if thread is not None and thread.is_alive():
@@ -271,19 +213,9 @@ class WarmupManager:
 
     def _run(self) -> None:
         try:
-            self._set_state(
-                state="running",
-                progress=0.1,
-                message="Loading Nano-TTS model.",
-                error=None,
-            )
+            self._set_state(state="running", progress=0.1, message="Loading Nano-TTS model.", error=None)
             self.runtime.get_model()
-            self._set_state(
-                state="running",
-                progress=0.6,
-                message="Running startup warmup synthesis.",
-                error=None,
-            )
+            self._set_state(state="running", progress=0.6, message="Running startup warmup synthesis.", error=None)
             result = self.runtime.warmup()
             _maybe_delete_file(result["audio_path"])
             if self.text_normalizer_manager is not None:
@@ -295,28 +227,20 @@ class WarmupManager:
                 )
                 normalization_snapshot = self.text_normalizer_manager.ensure_ready()
                 if normalization_snapshot.failed:
-                    raise RuntimeError(
-                        normalization_snapshot.error or normalization_snapshot.message
-                    )
+                    raise RuntimeError(normalization_snapshot.error or normalization_snapshot.message)
             self._set_state(
                 state="ready",
                 progress=1.0,
                 message=(
                     f"Warmup complete. device={self.runtime.device} "
                     f"elapsed={result['elapsed_seconds']:.2f}s"
-                    + (
-                        " | WeTextProcessing ready."
-                        if self.text_normalizer_manager is not None
-                        else ""
-                    )
+                    + (" | WeTextProcessing ready." if self.text_normalizer_manager is not None else "")
                 ),
                 error=None,
             )
         except Exception as exc:
             logging.exception("Nano-TTS warmup failed")
-            self._set_state(
-                state="failed", progress=1.0, message="Warmup failed.", error=str(exc)
-            )
+            self._set_state(state="failed", progress=1.0, message="Warmup failed.", error=str(exc))
 
 
 T = TypeVar("T")
@@ -432,9 +356,7 @@ class RequestRuntimeManager:
 @dataclass
 class StreamingJob:
     stream_id: str
-    audio_queue: "queue.Queue[bytes | None]" = field(
-        default_factory=lambda: queue.Queue(maxsize=64)
-    )
+    audio_queue: "queue.Queue[bytes | None]" = field(default_factory=lambda: queue.Queue(maxsize=64))
     created_at: float = field(default_factory=time.monotonic)
     started_at: float | None = None
     first_audio_at: float | None = None
@@ -459,9 +381,7 @@ class StreamingJob:
         if not self.audio_chunk_ranges:
             return self.current_chunk_index
 
-        playback_audio_seconds = max(
-            0.0, float(self.emitted_audio_seconds) - float(self.lead_seconds)
-        )
+        playback_audio_seconds = max(0.0, float(self.emitted_audio_seconds) - float(self.lead_seconds))
         for start_seconds, end_seconds, chunk_index in self.audio_chunk_ranges:
             if playback_audio_seconds <= end_seconds + 1e-6:
                 return chunk_index
@@ -545,9 +465,7 @@ def _format_run_status(result: dict[str, object]) -> str:
     audio_seconds = sample_count / sample_rate if sample_rate > 0 else 0.0
     global_attn = str(result.get("effective_global_attn_implementation", "unknown"))
     local_attn = str(result.get("effective_local_attn_implementation", global_attn))
-    attn_summary = (
-        global_attn if global_attn == local_attn else f"{global_attn}/{local_attn}"
-    )
+    attn_summary = global_attn if global_attn == local_attn else f"{global_attn}/{local_attn}"
     tts_batch_size = result.get("voice_clone_chunk_batch_size")
     codec_batch_size = result.get("voice_clone_codec_batch_size")
     batch_summary = ""
@@ -560,16 +478,12 @@ def _format_run_status(result: dict[str, object]) -> str:
         execution_summary = f" | exec={execution_device}"
         if cpu_threads is not None:
             execution_summary += f" | cpu_threads={int(cpu_threads)}"
-    prompt_audio_display_path = str(
-        result.get("prompt_audio_display_path") or ""
-    ).strip()
+    prompt_audio_display_path = str(result.get("prompt_audio_display_path") or "").strip()
     prompt_audio_path = str(result.get("prompt_audio_path") or "").strip()
     speaker_summary = f"voice={result['voice']}"
     if prompt_audio_display_path:
         if prompt_audio_display_path.lower().startswith("uploaded:"):
-            speaker_summary = (
-                f"prompt={prompt_audio_display_path.split(':', 1)[1].strip()}"
-            )
+            speaker_summary = f"prompt={prompt_audio_display_path.split(':', 1)[1].strip()}"
         else:
             speaker_summary = f"prompt={Path(prompt_audio_display_path).stem}"
     elif prompt_audio_path:
@@ -629,11 +543,7 @@ def _audio_to_wav_bytes(audio_array, sample_rate: int) -> bytes:
     audio_np = np.asarray(audio_array, dtype=np.float32)
     if audio_np.ndim == 1:
         audio_np = audio_np[:, None]
-    elif (
-        audio_np.ndim == 2
-        and audio_np.shape[0] <= 8
-        and audio_np.shape[0] < audio_np.shape[1]
-    ):
+    elif audio_np.ndim == 2 and audio_np.shape[0] <= 8 and audio_np.shape[0] < audio_np.shape[1]:
         audio_np = audio_np.T
     elif audio_np.ndim != 2:
         raise ValueError(f"Unsupported audio array shape: {audio_np.shape}")
@@ -656,11 +566,7 @@ def _audio_to_pcm16le_bytes(audio_array) -> bytes:
     audio_np = np.asarray(audio_array, dtype=np.float32)
     if audio_np.ndim == 1:
         audio_np = audio_np[:, None]
-    elif (
-        audio_np.ndim == 2
-        and audio_np.shape[0] <= 8
-        and audio_np.shape[0] < audio_np.shape[1]
-    ):
+    elif audio_np.ndim == 2 and audio_np.shape[0] <= 8 and audio_np.shape[0] < audio_np.shape[1]:
         audio_np = audio_np.T
     elif audio_np.ndim != 2:
         raise ValueError(f"Unsupported audio array shape: {audio_np.shape}")
@@ -680,9 +586,7 @@ def _read_audio_file_base64(path_value: str | None) -> str:
     try:
         return base64.b64encode(path.read_bytes()).decode("ascii")
     except Exception:
-        logging.warning(
-            "failed to read audio file for base64 response: %s", path, exc_info=True
-        )
+        logging.warning("failed to read audio file for base64 response: %s", path, exc_info=True)
         return ""
 
 
@@ -692,9 +596,7 @@ def _maybe_delete_file(path_value: str | None) -> None:
     try:
         Path(path_value).unlink(missing_ok=True)
     except Exception:
-        logging.warning(
-            "failed to remove temporary file: %s", path_value, exc_info=True
-        )
+        logging.warning("failed to remove temporary file: %s", path_value, exc_info=True)
 
 
 def _coerce_bool(value: str | None, default: bool) -> bool:
@@ -719,9 +621,7 @@ def _format_uploaded_prompt_display_name(filename: str | None) -> str:
     return f"Uploaded: {_sanitize_uploaded_prompt_filename(filename)}"
 
 
-async def _persist_uploaded_prompt_audio(
-    upload: UploadFile | None,
-) -> tuple[str | None, str | None]:
+async def _persist_uploaded_prompt_audio(upload: UploadFile | None) -> tuple[str | None, str | None]:
     if upload is None:
         return None, None
 
@@ -2258,12 +2158,8 @@ def _render_index_html(
     replacements = {
         "__APP_BASE__": json.dumps(base_path),
         "__DEMOS__": json.dumps(demos_payload, ensure_ascii=False),
-        "__DEFAULT_DEMO_ID__": json.dumps(
-            demo_entries[0].demo_id if demo_entries else ""
-        ),
-        "__DEFAULT_ATTN_IMPLEMENTATION__": json.dumps(
-            runtime.attn_implementation or "model_default"
-        ),
+        "__DEFAULT_DEMO_ID__": json.dumps(demo_entries[0].demo_id if demo_entries else ""),
+        "__DEFAULT_ATTN_IMPLEMENTATION__": json.dumps(runtime.attn_implementation or "model_default"),
         "__DEFAULT_CPU_THREADS__": json.dumps(max(1, int(os.cpu_count() or 1))),
         "__WARMUP_STATUS__": warmup_status,
         "__TEXT_NORMALIZATION_STATUS__": text_normalization_status,
@@ -2320,9 +2216,7 @@ def _build_app(
             logging.warning("failed to resolve playback text chunks", exc_info=True)
             return [normalized_text]
 
-        normalized_chunks = [
-            str(chunk).strip() for chunk in chunks if str(chunk).strip()
-        ]
+        normalized_chunks = [str(chunk).strip() for chunk in chunks if str(chunk).strip()]
         return normalized_chunks or [normalized_text]
 
     def _resolve_demo_entry(demo_id: str) -> DemoEntry:
@@ -2340,17 +2234,10 @@ def _build_app(
         prompt_audio: UploadFile | None,
     ) -> tuple[DemoEntry | None, str, str, str | None]:
         normalized_demo_id = str(demo_id or "").strip()
-        demo_entry = (
-            _resolve_demo_entry(normalized_demo_id) if normalized_demo_id else None
-        )
+        demo_entry = _resolve_demo_entry(normalized_demo_id) if normalized_demo_id else None
 
-        uploaded_prompt_audio_path, uploaded_prompt_audio_display_path = (
-            await _persist_uploaded_prompt_audio(prompt_audio)
-        )
-        if (
-            uploaded_prompt_audio_path is not None
-            and uploaded_prompt_audio_display_path is not None
-        ):
+        uploaded_prompt_audio_path, uploaded_prompt_audio_display_path = await _persist_uploaded_prompt_audio(prompt_audio)
+        if uploaded_prompt_audio_path is not None and uploaded_prompt_audio_display_path is not None:
             return (
                 demo_entry,
                 uploaded_prompt_audio_path,
@@ -2379,18 +2266,14 @@ def _build_app(
             metrics.append(f"first_audio={float(first_audio_latency):.2f}s")
         return " | ".join(metrics)
 
-    def _text_normalization_status_text(
-        snapshot: SharedTextNormalizationSnapshot | None,
-    ) -> str:
+    def _text_normalization_status_text(snapshot: SharedTextNormalizationSnapshot | None) -> str:
         if snapshot is None:
             return "WeTextProcessing disabled."
         if snapshot.failed:
             return f"{snapshot.message} error={snapshot.error}"
         return snapshot.message
 
-    def _resolve_attn_for_runtime(
-        selected_runtime: NanoTTSService, requested_attn: str
-    ) -> str:
+    def _resolve_attn_for_runtime(selected_runtime: NanoTTSService, requested_attn: str) -> str:
         normalized = str(requested_attn or "model_default").strip().lower()
         if selected_runtime.device.type != "cpu":
             return requested_attn
@@ -2437,9 +2320,7 @@ def _build_app(
             with job.lock:
                 job.started_at = time.monotonic()
                 job.state = "running"
-                job.run_status = (
-                    f"Streaming realtime audio... exec={initial_execution_label}"
-                )
+                job.run_status = f"Streaming realtime audio... exec={initial_execution_label}"
 
             def _stream_factory(selected_runtime: NanoTTSService):
                 return selected_runtime.synthesize_stream(
@@ -2451,9 +2332,7 @@ def _build_app(
                     voice_clone_max_text_tokens=int(voice_clone_max_text_tokens),
                     tts_max_batch_size=int(tts_max_batch_size),
                     codec_max_batch_size=int(codec_max_batch_size),
-                    attn_implementation=_resolve_attn_for_runtime(
-                        selected_runtime, attn_implementation
-                    ),
+                    attn_implementation=_resolve_attn_for_runtime(selected_runtime, attn_implementation),
                     do_sample=bool(do_sample),
                     text_temperature=float(text_temperature),
                     text_top_p=float(text_top_p),
@@ -2465,11 +2344,7 @@ def _build_app(
                     seed=seed,
                 )
 
-            for (
-                event,
-                resolved_execution_device,
-                resolved_cpu_threads,
-            ) in runtime_manager.iter_with_runtime(
+            for event, resolved_execution_device, resolved_cpu_threads in runtime_manager.iter_with_runtime(
                 requested_execution_device="cpu",
                 cpu_threads=cpu_threads,
                 factory=_stream_factory,
@@ -2480,16 +2355,12 @@ def _build_app(
                         break
 
                 if event_type == "audio":
-                    waveform_numpy = np.asarray(
-                        event["waveform_numpy"], dtype=np.float32
-                    )
+                    waveform_numpy = np.asarray(event["waveform_numpy"], dtype=np.float32)
                     pcm_bytes = _audio_to_pcm16le_bytes(waveform_numpy)
                     if not pcm_bytes:
                         continue
                     sample_rate = int(event["sample_rate"])
-                    channels = (
-                        1 if waveform_numpy.ndim == 1 else int(waveform_numpy.shape[1])
-                    )
+                    channels = 1 if waveform_numpy.ndim == 1 else int(waveform_numpy.shape[1])
                     is_pause = bool(event.get("is_pause", False))
                     event_duration_seconds = (
                         float(waveform_numpy.shape[0]) / float(sample_rate)
@@ -2499,43 +2370,33 @@ def _build_app(
                     with job.lock:
                         job.sample_rate = sample_rate
                         job.channels = channels
-                        job.emitted_audio_seconds = float(
-                            event.get("emitted_audio_seconds", 0.0)
-                        )
+                        job.emitted_audio_seconds = float(event.get("emitted_audio_seconds", 0.0))
                         job.lead_seconds = float(event.get("lead_seconds", 0.0))
-                        normalized_chunk_index, job.chunk_index_base = (
-                            _normalize_stream_chunk_index(
-                                event.get("chunk_index"),
-                                chunk_count=len(job.text_chunks),
-                                current_base=job.chunk_index_base,
-                            )
+                        normalized_chunk_index, job.chunk_index_base = _normalize_stream_chunk_index(
+                            event.get("chunk_index"),
+                            chunk_count=len(job.text_chunks),
+                            current_base=job.chunk_index_base,
                         )
                         if normalized_chunk_index is not None:
                             job.current_chunk_index = normalized_chunk_index
                             if not is_pause and event_duration_seconds > 0.0:
                                 chunk_end_seconds = job.emitted_audio_seconds
-                                chunk_start_seconds = max(
-                                    0.0, chunk_end_seconds - event_duration_seconds
-                                )
+                                chunk_start_seconds = max(0.0, chunk_end_seconds - event_duration_seconds)
                                 job.audio_chunk_ranges.append(
-                                    (
-                                        chunk_start_seconds,
-                                        chunk_end_seconds,
-                                        normalized_chunk_index,
-                                    )
+                                    (chunk_start_seconds, chunk_end_seconds, normalized_chunk_index)
                                 )
                         if job.first_audio_at is None and not is_pause:
                             job.first_audio_at = time.monotonic()
-                        job.run_status = f"Streaming | emitted={job.emitted_audio_seconds:.2f}s | lead={job.lead_seconds:.2f}s"
+                        job.run_status = (
+                            f"Streaming | emitted={job.emitted_audio_seconds:.2f}s | lead={job.lead_seconds:.2f}s"
+                        )
                     _put_stream_audio(job, pcm_bytes)
                     continue
 
                 if event_type == "result":
                     formatted_result = dict(event)
                     formatted_result["execution_device"] = resolved_execution_device
-                    formatted_result["prompt_audio_display_path"] = (
-                        prompt_audio_display_path
-                    )
+                    formatted_result["prompt_audio_display_path"] = prompt_audio_display_path
                     if resolved_cpu_threads is not None:
                         formatted_result["cpu_threads"] = resolved_cpu_threads
                     formatted_run_status = _format_run_status(formatted_result)
@@ -2573,9 +2434,7 @@ def _build_app(
                 demo_entries=demo_entries,
                 warmup_status=_warmup_status_text(warmup_manager.snapshot()),
                 text_normalization_status=_text_normalization_status_text(
-                    text_normalizer_manager.snapshot()
-                    if text_normalizer_manager is not None
-                    else None
+                    text_normalizer_manager.snapshot() if text_normalizer_manager is not None else None
                 ),
             )
         )
@@ -2589,20 +2448,14 @@ def _build_app(
             "cpu_runtime_loaded": runtime_manager.is_cpu_runtime_loaded(),
             "default_cpu_threads": runtime_manager.default_cpu_threads,
             "attn_implementation": runtime.attn_implementation or "model_default",
-            "checkpoint_default_attn_implementation": runtime._checkpoint_global_attn_implementation
-            or "unknown",
-            "checkpoint_default_local_attn_implementation": runtime._checkpoint_local_attn_implementation
-            or "unknown",
-            "configured_attn_implementation": runtime._configured_global_attn_implementation
-            or "unknown",
-            "configured_local_attn_implementation": runtime._configured_local_attn_implementation
-            or "unknown",
+            "checkpoint_default_attn_implementation": runtime._checkpoint_global_attn_implementation or "unknown",
+            "checkpoint_default_local_attn_implementation": runtime._checkpoint_local_attn_implementation or "unknown",
+            "configured_attn_implementation": runtime._configured_global_attn_implementation or "unknown",
+            "configured_local_attn_implementation": runtime._configured_local_attn_implementation or "unknown",
             "checkpoint_path": str(runtime.checkpoint_path),
             "audio_tokenizer_path": str(runtime.audio_tokenizer_path),
             "text_normalization_status": _text_normalization_status_text(
-                text_normalizer_manager.snapshot()
-                if text_normalizer_manager is not None
-                else None
+                text_normalizer_manager.snapshot() if text_normalizer_manager is not None else None
             ),
         }
 
@@ -2621,11 +2474,7 @@ def _build_app(
 
     @app.get("/api/text-normalization-status")
     async def text_normalization_status():
-        snapshot = (
-            text_normalizer_manager.snapshot()
-            if text_normalizer_manager is not None
-            else None
-        )
+        snapshot = text_normalizer_manager.snapshot() if text_normalizer_manager is not None else None
         if snapshot is None:
             return {
                 "state": "disabled",
@@ -2653,11 +2502,7 @@ def _build_app(
         except ValueError as exc:
             return JSONResponse(status_code=404, content={"error": str(exc)})
 
-        media_type = (
-            "audio/wav"
-            if demo_entry.prompt_audio_path.suffix.lower() == ".wav"
-            else "application/octet-stream"
-        )
+        media_type = "audio/wav" if demo_entry.prompt_audio_path.suffix.lower() == ".wav" else "application/octet-stream"
         return FileResponse(
             path=str(demo_entry.prompt_audio_path),
             media_type=media_type,
@@ -2688,20 +2533,13 @@ def _build_app(
         seed: str = Form("0"),
     ):
         try:
-            (
-                demo_entry,
-                prompt_audio_path,
-                prompt_audio_display_path,
-                prompt_audio_cleanup_path,
-            ) = await _resolve_prompt_audio_request(
-                demo_id=demo_id, prompt_audio=prompt_audio
+            demo_entry, prompt_audio_path, prompt_audio_display_path, prompt_audio_cleanup_path = (
+                await _resolve_prompt_audio_request(demo_id=demo_id, prompt_audio=prompt_audio)
             )
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
 
-        resolved_text = str(text or "").strip() or (
-            demo_entry.text if demo_entry is not None else ""
-        )
+        resolved_text = str(text or "").strip() or (demo_entry.text if demo_entry is not None else "")
         if not resolved_text:
             _maybe_delete_file(prompt_audio_cleanup_path)
             return JSONResponse(status_code=400, content={"error": "text is required."})
@@ -2780,16 +2618,12 @@ def _build_app(
                 "prompt_audio_path": prompt_audio_display_path,
                 "warmup_status_text": _warmup_status_text(warmup_manager.snapshot()),
                 "text_normalization_status_text": _text_normalization_status_text(
-                    text_normalizer_manager.snapshot()
-                    if text_normalizer_manager is not None
-                    else None
+                    text_normalizer_manager.snapshot() if text_normalizer_manager is not None else None
                 ),
                 "text_chunks": text_chunks,
                 "normalized_text": str(prepared_texts["normalized_text"]),
                 "normalization_method": str(prepared_texts["normalization_method"]),
-                "text_normalization_language": str(
-                    prepared_texts["text_normalization_language"]
-                ),
+                "text_normalization_language": str(prepared_texts["text_normalization_language"]),
             }
         except Exception:
             _maybe_delete_file(prompt_audio_cleanup_path)
@@ -2806,27 +2640,17 @@ def _build_app(
         return snapshot
 
     @app.get("/api/generate-stream/{stream_id}/audio")
-    async def generate_stream_audio(stream_id: str, token: str = ""):
+    async def generate_stream_audio(stream_id: str):
         job = stream_jobs.get(stream_id)
         if job is None:
             return JSONResponse(status_code=404, content={"error": "stream not found"})
 
-        try:
-            verify_temp_token(token, stream_id)
-        except ValueError as e:
-            return JSONResponse(status_code=403, content={"error": str(e)})
-
         def _iter_audio():
-            try:
-                while True:
-                    item = job.audio_queue.get()
-                    if item is None:
-                        break
-                    yield item
-            except Exception as e:
-                logging.warning(f"Audio stream interrupted for {stream_id}: {e}")
-            finally:
-                stream_jobs.close(stream_id)
+            while True:
+                item = job.audio_queue.get()
+                if item is None:
+                    break
+                yield item
 
         return StreamingResponse(
             _iter_audio(),
@@ -2846,9 +2670,7 @@ def _build_app(
             return JSONResponse(status_code=404, content={"error": "stream not found"})
         snapshot = job.snapshot()
         if snapshot["failed"]:
-            return JSONResponse(
-                status_code=500, content={"error": snapshot["error"], **snapshot}
-            )
+            return JSONResponse(status_code=500, content={"error": snapshot["error"], **snapshot})
         if not snapshot["ready"] or job.final_result is None:
             return JSONResponse(status_code=202, content=snapshot)
 
@@ -2874,15 +2696,11 @@ def _build_app(
             "stream_id": stream_id,
             "ready": True,
             "state": snapshot["state"],
-            "prompt_audio_path": result.get("prompt_audio_path")
-            or snapshot.get("prompt_audio_path")
-            or "",
+            "prompt_audio_path": result.get("prompt_audio_path") or snapshot.get("prompt_audio_path") or "",
             "run_status": result.get("run_status") or snapshot["run_status"],
             "stream_metrics": _stream_metrics_text(snapshot),
             "warmup_status_text": _warmup_status_text(warmup_manager.snapshot()),
-            "text_chunks": result.get("text_chunks")
-            or snapshot.get("text_chunks")
-            or [],
+            "text_chunks": result.get("text_chunks") or snapshot.get("text_chunks") or [],
             "audio_chunk_ranges": audio_chunk_ranges,
             "audio_base64": audio_base64_payload,
         }
@@ -2895,9 +2713,7 @@ def _build_app(
         audio_cleanup_path = ""
         with job.lock:
             if job.final_result is not None:
-                audio_cleanup_path = str(
-                    job.final_result.get("audio_path") or ""
-                ).strip()
+                audio_cleanup_path = str(job.final_result.get("audio_path") or "").strip()
         snapshot = job.snapshot()
         snapshot["status_text"] = _format_stream_status(snapshot)
         stream_jobs.delete(stream_id)
@@ -2928,20 +2744,13 @@ def _build_app(
         seed: str = Form("0"),
     ):
         try:
-            (
-                demo_entry,
-                prompt_audio_path,
-                prompt_audio_display_path,
-                prompt_audio_cleanup_path,
-            ) = await _resolve_prompt_audio_request(
-                demo_id=demo_id, prompt_audio=prompt_audio
+            demo_entry, prompt_audio_path, prompt_audio_display_path, prompt_audio_cleanup_path = (
+                await _resolve_prompt_audio_request(demo_id=demo_id, prompt_audio=prompt_audio)
             )
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
 
-        resolved_text = str(text or "").strip() or (
-            demo_entry.text if demo_entry is not None else ""
-        )
+        resolved_text = str(text or "").strip() or (demo_entry.text if demo_entry is not None else "")
         if not resolved_text:
             _maybe_delete_file(prompt_audio_cleanup_path)
             return JSONResponse(status_code=400, content={"error": "text is required."})
@@ -2980,9 +2789,7 @@ def _build_app(
                     voice_clone_max_text_tokens=int(voice_clone_max_text_tokens),
                     tts_max_batch_size=int(tts_max_batch_size),
                     codec_max_batch_size=int(codec_max_batch_size),
-                    attn_implementation=_resolve_attn_for_runtime(
-                        selected_runtime, attn_implementation
-                    ),
+                    attn_implementation=_resolve_attn_for_runtime(selected_runtime, attn_implementation),
                     do_sample=_coerce_bool(do_sample, True),
                     text_temperature=float(text_temperature),
                     text_top_p=float(text_top_p),
@@ -2994,12 +2801,10 @@ def _build_app(
                     seed=normalized_seed,
                 )
 
-            result, resolved_execution_device, resolved_cpu_threads = (
-                runtime_manager.call_with_runtime(
-                    requested_execution_device="cpu",
-                    cpu_threads=cpu_threads,
-                    callback=_synthesize,
-                )
+            result, resolved_execution_device, resolved_cpu_threads = runtime_manager.call_with_runtime(
+                requested_execution_device="cpu",
+                cpu_threads=cpu_threads,
+                callback=_synthesize,
             )
             result["execution_device"] = resolved_execution_device
             result["prompt_audio_display_path"] = prompt_audio_display_path
@@ -3017,9 +2822,7 @@ def _build_app(
                     cpu_threads=int(cpu_threads),
                 )
             generated_audio_path = str(result["audio_path"])
-            wav_bytes = _audio_to_wav_bytes(
-                result["waveform_numpy"], int(result["sample_rate"])
-            )
+            wav_bytes = _audio_to_wav_bytes(result["waveform_numpy"], int(result["sample_rate"]))
             return {
                 "audio_base64": base64.b64encode(wav_bytes).decode("ascii"),
                 "sample_rate": int(result["sample_rate"]),
@@ -3027,16 +2830,12 @@ def _build_app(
                 "prompt_audio_path": prompt_audio_display_path,
                 "warmup_status_text": _warmup_status_text(warmup_manager.snapshot()),
                 "text_normalization_status_text": _text_normalization_status_text(
-                    text_normalizer_manager.snapshot()
-                    if text_normalizer_manager is not None
-                    else None
+                    text_normalizer_manager.snapshot() if text_normalizer_manager is not None else None
                 ),
                 "text_chunks": text_chunks,
                 "normalized_text": str(prepared_texts["normalized_text"]),
                 "normalization_method": str(prepared_texts["normalization_method"]),
-                "text_normalization_language": str(
-                    prepared_texts["text_normalization_language"]
-                ),
+                "text_normalization_language": str(prepared_texts["text_normalization_language"]),
             }
         except Exception as exc:
             logging.exception("Nano-TTS generation failed")
@@ -3050,13 +2849,7 @@ def _build_app(
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="MOSS-TTS-Nano web demo")
-    parser.add_argument(
-        "--checkpoint-path",
-        "--checkpoint_path",
-        dest="checkpoint_path",
-        type=str,
-        default=str(DEFAULT_CHECKPOINT_PATH),
-    )
+    parser.add_argument("--checkpoint-path", "--checkpoint_path", dest="checkpoint_path", type=str, default=str(DEFAULT_CHECKPOINT_PATH))
     parser.add_argument(
         "--audio-tokenizer-path",
         "--audio_tokenizer_path",
@@ -3064,20 +2857,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         type=str,
         default=str(DEFAULT_AUDIO_TOKENIZER_PATH),
     )
-    parser.add_argument(
-        "--output-dir",
-        "--output_dir",
-        dest="output_dir",
-        type=str,
-        default=str(DEFAULT_OUTPUT_DIR),
-    )
+    parser.add_argument("--output-dir", "--output_dir", dest="output_dir", type=str, default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "auto"])
-    parser.add_argument(
-        "--dtype",
-        type=str,
-        default="auto",
-        choices=["auto", "float32", "float16", "bfloat16"],
-    )
+    parser.add_argument("--dtype", type=str, default="auto", choices=["auto", "float32", "float16", "bfloat16"])
     parser.add_argument(
         "--attn-implementation",
         "--attn_implementation",
@@ -3107,9 +2889,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     resolved_runtime_device = "cpu"
     if args.device != "cpu":
-        logging.info(
-            "CPU-only app mode: ignoring --device=%s and forcing cpu.", args.device
-        )
+        logging.info("CPU-only app mode: ignoring --device=%s and forcing cpu.", args.device)
 
     runtime = NanoTTSService(
         checkpoint_path=args.checkpoint_path,
@@ -3121,9 +2901,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     text_normalizer_manager = SharedWeTextProcessingManager()
     text_normalizer_manager.start()
-    warmup_manager = WarmupManager(
-        runtime, text_normalizer_manager=text_normalizer_manager
-    )
+    warmup_manager = WarmupManager(runtime, text_normalizer_manager=text_normalizer_manager)
     warmup_manager.start()
 
     vscode_proxy_uri = os.getenv("VSCODE_PROXY_URI", "")
