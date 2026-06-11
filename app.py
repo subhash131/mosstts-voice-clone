@@ -2205,7 +2205,7 @@ def _build_app(
 
         try:
             chunks, _, _ = runtime_manager.call_with_runtime(
-                requested_execution_device="cpu",
+                requested_execution_device="default",
                 cpu_threads=cpu_threads,
                 callback=lambda selected_runtime: selected_runtime.split_voice_clone_text(
                     text=normalized_text,
@@ -2316,7 +2316,7 @@ def _build_app(
         seed: int | None,
     ) -> None:
         try:
-            initial_execution_label = "cpu"
+            initial_execution_label = "default"
             with job.lock:
                 job.started_at = time.monotonic()
                 job.state = "running"
@@ -2345,7 +2345,7 @@ def _build_app(
                 )
 
             for event, resolved_execution_device, resolved_cpu_threads in runtime_manager.iter_with_runtime(
-                requested_execution_device="cpu",
+                requested_execution_device="default",
                 cpu_threads=cpu_threads,
                 factory=_stream_factory,
             ):
@@ -2605,7 +2605,7 @@ def _build_app(
             thread.start()
             prompt_audio_cleanup_path = None
 
-            initial_execution_label = "cpu"
+            initial_execution_label = "default"
 
             return {
                 "stream_id": job.stream_id,
@@ -2802,7 +2802,7 @@ def _build_app(
                 )
 
             result, resolved_execution_device, resolved_cpu_threads = runtime_manager.call_with_runtime(
-                requested_execution_device="cpu",
+                requested_execution_device="default",
                 cpu_threads=cpu_threads,
                 callback=_synthesize,
             )
