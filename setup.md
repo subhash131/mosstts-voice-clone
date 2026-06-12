@@ -137,12 +137,12 @@ Railway detects your `Dockerfile` automatically — no YAML needed.
 
 ### Important Railway settings
 
-| Setting | Value |
-|---------|-------|
-| Internal Port | `18083` |
-| Health Check Path | `/api/warmup-status` |
-| Root Directory | `/` (default) |
-| RAM | ≥ 2 GB (4 GB recommended) |
+| Setting           | Value                     |
+| ----------------- | ------------------------- |
+| Internal Port     | `18083`                   |
+| Health Check Path | `/api/warmup-status`      |
+| Root Directory    | `/` (default)             |
+| RAM               | ≥ 2 GB (4 GB recommended) |
 
 > **Cost tip:** Railway's free hobby tier gives 500 CPU hours/month — enough for a demo.
 
@@ -297,13 +297,13 @@ Expose port **18083** in the pod's **HTTP Port** settings to get a public URL.
 
 These can be set in any cloud provider's dashboard under "Environment Variables":
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HF_HOME` | `~/.cache/huggingface` | Where HF model files are cached |
-| `TRANSFORMERS_CACHE` | same as `HF_HOME` | Legacy cache path |
-| `MOSS_TTS_DEVICE` | `cpu` | Set to `cuda` for GPU inference |
-| `MOSS_TTS_PORT` | `18083` | Server port |
-| `MOSS_TTS_HOST` | `127.0.0.1` | Set to `0.0.0.0` for cloud |
+| Variable             | Default                | Description                     |
+| -------------------- | ---------------------- | ------------------------------- |
+| `HF_HOME`            | `~/.cache/huggingface` | Where HF model files are cached |
+| `TRANSFORMERS_CACHE` | same as `HF_HOME`      | Legacy cache path               |
+| `MOSS_TTS_DEVICE`    | `cpu`                  | Set to `cuda` for GPU inference |
+| `MOSS_TTS_PORT`      | `18083`                | Server port                     |
+| `MOSS_TTS_HOST`      | `127.0.0.1`            | Set to `0.0.0.0` for cloud      |
 
 ### Persistent model cache (avoid re-downloading on restart)
 
@@ -314,13 +314,14 @@ On Railway/Render this is a **Disk** add-on. On Cloud Run, use a **Cloud Storage
 
 ## 9. Minimum Resource Requirements
 
-| Mode | RAM | vCPU | Storage |
-|------|-----|------|---------|
-| CPU (PyTorch) | 3 GB | 2 | 6 GB |
-| CPU (ONNX) | 2 GB | 2 | 6 GB |
-| GPU (PyTorch, cuda) | 4 GB VRAM + 2 GB RAM | 2 | 6 GB |
+| Mode                | RAM                  | vCPU | Storage |
+| ------------------- | -------------------- | ---- | ------- |
+| CPU (PyTorch)       | 3 GB                 | 2    | 6 GB    |
+| CPU (ONNX)          | 2 GB                 | 2    | 6 GB    |
+| GPU (PyTorch, cuda) | 4 GB VRAM + 2 GB RAM | 2    | 6 GB    |
 
 The **ONNX version** (`app_onnx.py`) is the best choice for cloud CPU deployments:
+
 - No PyTorch dependency at inference time
 - ~2x faster than the PyTorch version on CPU
 - Same voice cloning workflow
@@ -336,13 +337,13 @@ CMD ["conda", "run", "--no-capture-output", "-n", "mosstts", \
 
 ## 10. Quick Comparison
 
-| Platform | Free tier | GPU support | Docker | Effort |
-|----------|-----------|-------------|--------|--------|
-| **Railway** | 500 CPU-hr/mo | ❌ | ✅ | ⭐ Easiest |
-| **Render** | Yes (sleeps) | ❌ | ✅ | ⭐⭐ Easy |
-| **HF Spaces** | CPU Basic | Paid | ✅ | ⭐⭐ Easy |
-| **Cloud Run** | 2M req/mo | ❌ | ✅ | ⭐⭐⭐ Medium |
-| **RunPod** | Pay-per-use | ✅ | ✅ | ⭐⭐⭐ Medium |
+| Platform      | Free tier     | GPU support | Docker | Effort        |
+| ------------- | ------------- | ----------- | ------ | ------------- |
+| **Railway**   | 500 CPU-hr/mo | ❌          | ✅     | ⭐ Easiest    |
+| **Render**    | Yes (sleeps)  | ❌          | ✅     | ⭐⭐ Easy     |
+| **HF Spaces** | CPU Basic     | Paid        | ✅     | ⭐⭐ Easy     |
+| **Cloud Run** | 2M req/mo     | ❌          | ✅     | ⭐⭐⭐ Medium |
+| **RunPod**    | Pay-per-use   | ✅          | ✅     | ⭐⭐⭐ Medium |
 
 ---
 
