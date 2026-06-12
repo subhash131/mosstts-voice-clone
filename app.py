@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import io
 import json
@@ -2887,10 +2888,18 @@ def _build_app(
                     seed=normalized_seed,
                 )
 
-            result, resolved_execution_device, resolved_cpu_threads = runtime_manager.call_with_runtime(
-                requested_execution_device="default",
-                cpu_threads=cpu_threads,
-                callback=_synthesize,
+            def _run_synthesis_in_thread():
+                return runtime_manager.call_with_runtime(
+                    requested_execution_device="default",
+                    cpu_threads=cpu_threads,
+                    callback=_synthesize,
+                )
+
+            # Run the blocking TTS inference in a thread-pool executor so we
+            # don't block the uvicorn async event loop and cause a deadlock.
+            loop = asyncio.get_event_loop()
+            result, resolved_execution_device, resolved_cpu_threads = await loop.run_in_executor(
+                None, _run_synthesis_in_thread
             )
             result["execution_device"] = resolved_execution_device
             result["prompt_audio_display_path"] = prompt_audio_display_path
