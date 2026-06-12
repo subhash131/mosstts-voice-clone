@@ -4,4 +4,4 @@
 APP_PORT="${PORT:-18083}"
 exec conda run --no-capture-output -n mosstts \
     env PORT="$APP_PORT" \
-    python app.py --host 0.0.0.0 --port "$APP_PORT" --device auto
+    python app.py --host 0.0.0.0 --port "$APP_PORT" --device auto --dtype float16
