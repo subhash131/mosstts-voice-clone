@@ -1,5 +1,5 @@
 # ── Base image ────────────────────────────────────────────────────────────────
-FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
 
 WORKDIR /app  
 
@@ -26,10 +26,16 @@ RUN conda create -n mosstts python=3.12 -y && \
     conda clean -afy
 
 # ── Install PyTorch with CUDA support (before COPY to leverage cache) ─────────
-# Pinned to match requirements.txt versions but from the cu126 index for GPU.
+# CUDA 12.8 + cu128 wheels support:
+#   - Blackwell (RTX 5060/5070/5080/5090, sm_120) — requires cu128
+#   - Ada Lovelace (RTX 4060/4070/4080/4090, sm_89)
+#   - Ampere (RTX 3060/3070/3080/3090, A100, sm_80/86)
+#   - Hopper (H100, sm_90)
+# For older GPUs (Turing/Volta), downgrade to cu124 or cu121.
+# Pinned to match requirements.txt versions but from the cu128 index for GPU.
 RUN conda run -n mosstts pip install --no-cache-dir \
     torch==2.7.0 torchaudio==2.7.0 \
-    --index-url https://download.pytorch.org/whl/cu126
+    --index-url https://download.pytorch.org/whl/cu128
 
 # ── Copy requirements file first to cache dependency installation ───────────
 COPY requirements.txt .
