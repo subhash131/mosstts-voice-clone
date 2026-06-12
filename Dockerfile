@@ -26,6 +26,7 @@ RUN conda create -n mosstts python=3.12 -y && \
     conda clean -afy
 
 # ── Install PyTorch with CUDA support (before COPY to leverage cache) ─────────
+# Pinned to match requirements.txt versions but from the cu126 index for GPU.
 RUN conda run -n mosstts pip install --no-cache-dir \
     torch==2.7.0 torchaudio==2.7.0 \
     --index-url https://download.pytorch.org/whl/cu126
@@ -34,15 +35,24 @@ RUN conda run -n mosstts pip install --no-cache-dir \
 COPY requirements.txt .
 
 # ── Install Python dependencies ───────────────────────────────────────────────
-RUN conda run -n mosstts pip install --no-cache-dir \
-        git+https://github.com/WhizZest/WeTextProcessing.git && \
-    conda run -n mosstts pip install --no-cache-dir -r requirements.txt
+# IMPORTANT: --no-deps on torch/torchaudio to prevent requirements.txt from
+# overwriting the CUDA build with CPU-only wheels from PyPI.
+RUN conda run -n mosstts pip install --no-cache-dir -r requirements.txt \
+        --no-deps torch torchaudio && \
+    conda run -n mosstts pip install --no-cache-dir \
+        git+https://github.com/WhizZest/WeTextProcessing.git
 
 # ── Copy the rest of the source code ──────────────────────────────────────────
 COPY . .
 
 # ── Install editable package ──────────────────────────────────────────────────
 RUN conda run -n mosstts pip install --no-cache-dir -e .
+
+# ── Pre-download model weights to avoid slow cold starts ─────────────────────
+RUN conda run -n mosstts python -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download('OpenMOSS-Team/MOSS-TTS-Nano'); \
+snapshot_download('OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano')"
 
 # ── Make startup script executable ───────────────────────────────────────────
 RUN sed -i 's/\r$//' start.sh && chmod +x start.sh

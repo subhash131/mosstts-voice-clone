@@ -2944,7 +2944,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         default=str(DEFAULT_AUDIO_TOKENIZER_PATH),
     )
     parser.add_argument("--output-dir", "--output_dir", dest="output_dir", type=str, default=str(DEFAULT_OUTPUT_DIR))
-    parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "auto"])
+    parser.add_argument("--device", type=str, default="auto", choices=["cpu", "auto"])
     parser.add_argument("--dtype", type=str, default="auto", choices=["auto", "float32", "float16", "bfloat16"])
     parser.add_argument(
         "--attn-implementation",
