@@ -3,6 +3,10 @@ FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 
 WORKDIR /app  
 
+# ── NVIDIA Container Runtime — expose GPUs inside the container ───────────────
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 # ── System dependencies ───────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git ffmpeg libsndfile1 curl \
