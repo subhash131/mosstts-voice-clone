@@ -1149,17 +1149,17 @@ def _render_index_html(
           <div class="row" style="margin-top: 12px;">
             <div class="field">
               <label for="max-new-frames">Max New Frames</label>
-              <input id="max-new-frames" type="number" min="64" max="1024" step="1" value="375">
+              <input id="max-new-frames" type="number" min="64" max="1024" step="1" value="200">
             </div>
             <div class="field">
               <label for="voice-clone-max-text-tokens">Voice Clone Max Text Tokens</label>
-              <input id="voice-clone-max-text-tokens" type="number" min="25" max="200" step="1" value="75">
+              <input id="voice-clone-max-text-tokens" type="number" min="25" max="200" step="1" value="40">
             </div>
           </div>
           <div class="row">
             <div class="field">
               <label for="tts-max-batch-size">Max TTS Batch Size (0=auto)</label>
-              <input id="tts-max-batch-size" type="number" min="0" step="1" value="1">
+              <input id="tts-max-batch-size" type="number" min="0" step="1" value="0">
             </div>
             <div class="field">
               <label for="codec-max-batch-size">Max Codec Batch Size (0=auto)</label>
@@ -1244,7 +1244,7 @@ def _render_index_html(
           </div>
           <div class="row">
             <div class="field">
-              <label><input id="realtime-stream" type="checkbox"> Realtime Streaming Decode</label>
+              <label><input id="realtime-stream" type="checkbox" checked> Realtime Streaming Decode</label>
             </div>
             <div class="field">
               <label for="initial-playback-delay-seconds">Initial Playback Delay (s)</label>
@@ -2398,6 +2398,13 @@ def _build_app(
         audio_repetition_penalty: float,
         seed: int | None,
     ) -> None:
+        # Wall-clock deadline — guards against bfloat16 logit instability
+        # (NaN/Inf logits on Blackwell GPUs cause infinite generation loops).
+        # If synthesis takes longer than this, we hard-fail the job instead of
+        # pegging the GPU and freezing the machine.
+        _MAX_GENERATION_SECONDS = 60.0
+        _generation_start = time.monotonic()
+
         try:
             initial_execution_label = "default"
             with job.lock:
@@ -2432,6 +2439,22 @@ def _build_app(
                 cpu_threads=cpu_threads,
                 factory=_stream_factory,
             ):
+                # --- Timeout guard: kill runaway bfloat16 generation loops ---
+                _elapsed = time.monotonic() - _generation_start
+                if _elapsed > _MAX_GENERATION_SECONDS:
+                    _timeout_msg = (
+                        f"Generation timeout after {_elapsed:.1f}s — "
+                        "possible NaN/Inf logit instability (bfloat16). "
+                        "Restart with --dtype float16 to fix."
+                    )
+                    logging.error("[Timeout] %s", _timeout_msg)
+                    with job.lock:
+                        job.state = "failed"
+                        job.error = _timeout_msg
+                        job.completed_at = time.monotonic()
+                        job.run_status = f"Stream failed: timeout"
+                    break
+
                 event_type = str(event.get("type", ""))
                 with job.lock:
                     if job.is_closed:
@@ -2439,6 +2462,26 @@ def _build_app(
 
                 if event_type == "audio":
                     waveform_numpy = np.asarray(event["waveform_numpy"], dtype=np.float32)
+
+                    # --- NaN/Inf guard: detect degenerate logits early ---
+                    # bfloat16 overflow on Blackwell GPUs produces NaN/Inf waveforms.
+                    # Catching it here prevents forwarding garbage audio to the client
+                    # and allows the job to fail cleanly rather than loop forever.
+                    if not np.isfinite(waveform_numpy).all():
+                        _nan_count = int(np.sum(~np.isfinite(waveform_numpy)))
+                        _nan_msg = (
+                            f"Non-finite audio waveform detected ({_nan_count} samples). "
+                            "This is a bfloat16 logit instability on the GPU. "
+                            "Restart with --dtype float16 to fix."
+                        )
+                        logging.error("[NaN Guard] %s", _nan_msg)
+                        with job.lock:
+                            job.state = "failed"
+                            job.error = _nan_msg
+                            job.completed_at = time.monotonic()
+                            job.run_status = f"Stream failed: NaN/Inf waveform"
+                        break
+
                     pcm_bytes = _audio_to_pcm16le_bytes(waveform_numpy)
                     if not pcm_bytes:
                         continue
@@ -2897,7 +2940,7 @@ def _build_app(
 
             # Run the blocking TTS inference in a thread-pool executor so we
             # don't block the uvicorn async event loop and cause a deadlock.
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result, resolved_execution_device, resolved_cpu_threads = await loop.run_in_executor(
                 None, _run_synthesis_in_thread
             )
