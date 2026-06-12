@@ -254,6 +254,10 @@ class RequestRuntimeManager:
         self._lock = threading.Lock()
         self._cpu_execution_lock = threading.Lock()
         self._cpu_runtime: NanoTTSService | None = None
+        # Semaphore(1) — only one thread may run GPU inference at a time.
+        # Without this, concurrent requests corrupt CUDA state and cause
+        # the deadlock-on-query-3 crash (two threads fighting the GPU).
+        self._gpu_semaphore = threading.Semaphore(1)
 
     @staticmethod
     def normalize_requested_execution_device(requested: str | None) -> str:
@@ -313,7 +317,9 @@ class RequestRuntimeManager:
     ) -> tuple[T, str, int | None]:
         runtime, execution_device = self.resolve_runtime(requested_execution_device)
         if runtime.device.type != "cpu":
-            return callback(runtime), execution_device, None
+            # Acquire the GPU semaphore so only one thread runs inference at a time.
+            with self._gpu_semaphore:
+                return callback(runtime), execution_device, None
 
         resolved_cpu_threads = self._resolve_cpu_threads(cpu_threads)
         with self._cpu_execution_lock:
@@ -336,8 +342,12 @@ class RequestRuntimeManager:
     ) -> Iterator[tuple[T, str, int | None]]:
         runtime, execution_device = self.resolve_runtime(requested_execution_device)
         if runtime.device.type != "cpu":
-            for item in factory(runtime):
-                yield item, execution_device, None
+            # Hold the GPU semaphore for the entire streaming iteration.
+            # This prevents a second request from entering GPU inference
+            # while the first is still yielding audio chunks.
+            with self._gpu_semaphore:
+                for item in factory(runtime):
+                    yield item, execution_device, None
             return
 
         resolved_cpu_threads = self._resolve_cpu_threads(cpu_threads)
