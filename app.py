@@ -1243,7 +1243,7 @@ def _render_index_html(
           </div>
           <div class="row">
             <div class="field">
-              <label><input id="realtime-stream" type="checkbox" checked> Realtime Streaming Decode</label>
+              <label><input id="realtime-stream" type="checkbox"> Realtime Streaming Decode</label>
             </div>
             <div class="field">
               <label for="initial-playback-delay-seconds">Initial Playback Delay (s)</label>
@@ -2025,7 +2025,7 @@ def _render_index_html(
 
       currentStreamStatusTimer = window.setInterval(() => {
         updateStreamStatus().catch(() => {});
-      }, 500);
+      }, 2000);
       await updateStreamStatus();
 
       const response = await fetch(startData.audio_url, {
@@ -2212,7 +2212,7 @@ def _render_index_html(
     updatePauseButtonState();
     applySelectedDemo(true);
     refreshWarmupStatus();
-    window.setInterval(refreshWarmupStatus, 5000);
+    window.setInterval(refreshWarmupStatus, 30000);
   </script>
 </body>
 </html>
